@@ -1,0 +1,18 @@
+services:
+  image-server:
+    build:
+      context: .
+    image: image-server:latest
+    container_name: image_server
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      DATABASE_PATH: /app/data/image_server.sqlite
+    ports:
+      - "127.0.0.1:4001:4001"
+    volumes:
+      - image_server_data:/app/data
+
+volumes:
+  image_server_data:
