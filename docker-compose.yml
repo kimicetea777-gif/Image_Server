@@ -5,10 +5,14 @@ services:
     image: image-server:latest
     container_name: image_server
     restart: unless-stopped
+    mem_limit: 384m
     env_file:
       - .env
     environment:
       DATABASE_PATH: /app/data/image_server.sqlite
+      # sharp(libvips)는 V8 힙 밖의 네이티브 메모리를 쓰므로 힙 캡을 더 보수적으로 잡아서
+      # 이미지 처리용 네이티브 메모리 여유분을 mem_limit 안에 남겨둠
+      NODE_OPTIONS: --max-old-space-size=192
     ports:
       - "127.0.0.1:4001:4001"
     volumes:

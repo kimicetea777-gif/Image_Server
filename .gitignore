@@ -4,3 +4,7 @@ data/*.sqlite
 data/*.sqlite-*
 .env
 *.log
+
+# SSH 배포용 이미지 아카이브
+*.tar
+*.tar.gz
