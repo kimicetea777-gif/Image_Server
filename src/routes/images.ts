@@ -52,7 +52,7 @@ export default async function imageRoutes(fastify: FastifyInstance): Promise<voi
   // 이 플러그인 스코프(=/images*) 전체에 인증 적용
   fastify.addHook("preHandler", authenticate);
 
-  // POST /images — 업로드: 검증/리사이즈/webp 변환 후 R2 저장 + DB에 PENDING row 생성
+  // POST /images — 업로드: 검증/리사이즈/webp 변환 후 DB에 PENDING row 생성 + R2 저장
   fastify.post("/", { preHandler: [enforceRateLimit] }, async (request, reply) => {
     const project = request.project!;
 
@@ -74,21 +74,31 @@ export default async function imageRoutes(fastify: FastifyInstance): Promise<voi
     const id = randomUUID();
     const r2Key = `${project.slug}/${id}.webp`;
 
-    await putObject(r2Key, processed.buffer, "image/webp");
+    // DB(PENDING) 기록을 R2 업로드보다 먼저 한다 — R2와 DB는 한 트랜잭션으로 묶을 수 없으니, 복구 가능한
+    // 쪽(GC가 훑는 DB)에 먼저 남겨야 어느 지점에서 실패하거나 프로세스가 죽어도 GC가 정리할 수 있다.
+    // 반대 순서면 "R2 업로드 후 DB 기록 전" 실패 시 GC도 못 찾는 고아 파일이 남는다.
+    // id는 업로드가 끝난 뒤에야 응답으로 나가므로, 업로드 중인 row를 외부에서 볼 방법은 없다.
+    createPendingImage({
+      id,
+      projectId: project.id,
+      r2Key,
+      width: processed.width,
+      height: processed.height,
+      format: processed.format,
+      sizeBytes: processed.buffer.length,
+    });
 
     try {
-      createPendingImage({
-        id,
-        projectId: project.id,
-        r2Key,
-        width: processed.width,
-        height: processed.height,
-        format: processed.format,
-        sizeBytes: processed.buffer.length,
-      });
+      await putObject(r2Key, processed.buffer, "image/webp");
     } catch (err) {
-      // DB 기록 실패 시 R2에 남은 고아 파일 방지 — 보상 삭제
-      await deleteObject(r2Key).catch(() => {});
+      // 타임아웃 등으로 실제 업로드 여부가 불확실하니 row를 지우지 않고 DELETE_REQUESTED로 넘겨,
+      // 다음 GC 스윕이 키 삭제(없는 키여도 R2는 성공 응답)와 row 정리를 하게 한다. 이 표시마저
+      // 실패해도 row는 PENDING으로 남아 TTL 만료 후 GC가 정리한다.
+      try {
+        markDeleteRequested(id);
+      } catch (markErr) {
+        request.log.error({ err: markErr, imageId: id }, "Failed to mark DELETE_REQUESTED after R2 upload failure");
+      }
       throw err;
     }
 

@@ -30,6 +30,9 @@ const hardDeleteStmt = db.prepare("DELETE FROM images WHERE id = ?");
 const markDeleteRequestedStmt = db.prepare(
   "UPDATE images SET status = 'DELETE_REQUESTED' WHERE id = ?",
 );
+const claimPendingForDeletionStmt = db.prepare(
+  "UPDATE images SET status = 'DELETE_REQUESTED' WHERE id = ? AND status = 'PENDING'",
+);
 const findExpiredPendingStmt = db.prepare(
   "SELECT * FROM images WHERE status = 'PENDING' AND created_at < datetime('now', ?)",
 );
@@ -73,6 +76,13 @@ export function hardDeleteImage(id: string): void {
 
 export function markDeleteRequested(id: string): void {
   markDeleteRequestedStmt.run(id);
+}
+
+/** 아직 PENDING일 때만 DELETE_REQUESTED로 바꿔 삭제 대상으로 선점한다. false면 그사이 confirm 등으로
+ *  상태가 바뀐 것이니 지우면 안 된다 — GC가 조회 시점의 스냅샷만 믿고 지우면, R2 삭제를 await하는
+ *  동안 끼어든 confirm이 "확정됨"으로 응답한 이미지까지 지워버린다. */
+export function claimPendingForDeletion(id: string): boolean {
+  return claimPendingForDeletionStmt.run(id).changes > 0;
 }
 
 export function findExpiredPending(ttlHours: number): ImageRow[] {
