@@ -1,5 +1,6 @@
 import { hashApiKey } from "../plugins/auth.js";
-import { upsertProject } from "./projects.repo.js";
+import { db } from "./client.js";
+import { deactivateProjectsNotIn, upsertProject } from "./projects.repo.js";
 
 const DEFAULT_RATE_LIMIT_PER_WINDOW = 10;
 
@@ -28,9 +29,28 @@ function parseProjectsEnv(raw: string): ProjectConfig[] {
     });
 }
 
-// 서버 시작 시 호출 — env.PROJECTS를 projects 테이블에 upsert해서 DB를 파생 캐시로 유지
+// 서버 시작 시 호출 — env.PROJECTS를 단일 소스로 projects 테이블을 맞춘다. 목록에 있는 프로젝트는 upsert
+// (비활성이었다면 재활성화), 목록에서 빠진 프로젝트는 비활성화해서 그 키로는 더 이상 인증되지 않게 한다.
+// upsert만 하면 목록에서 지워도 DB row가 남아 옛 키가 계속 통하기 때문.
 export function syncProjectsFromEnv(raw: string): void {
-  for (const { slug, apiKey, rateLimitPerWindow } of parseProjectsEnv(raw)) {
-    upsertProject({ slug, apiKeyHash: hashApiKey(apiKey), rateLimitPerWindow });
+  const projects = parseProjectsEnv(raw);
+  // 빈 목록은 "모든 프로젝트 비활성화"가 되므로, .env 설정 누락이 조용한 전체 401로 이어지지 않게 기동 단계에서 막는다
+  if (projects.length === 0) {
+    throw new Error("PROJECTS가 비어 있음 — 최소 한 개의 프로젝트(slug:apiKey)를 등록해야 함");
+  }
+
+  db.exec("BEGIN");
+  try {
+    for (const { slug, apiKey, rateLimitPerWindow } of projects) {
+      upsertProject({ slug, apiKeyHash: hashApiKey(apiKey), rateLimitPerWindow });
+    }
+    const deactivated = deactivateProjectsNotIn(projects.map((project) => project.slug));
+    db.exec("COMMIT");
+    if (deactivated.length > 0) {
+      console.warn(`[projects] PROJECTS에 없는 프로젝트 비활성화: ${deactivated.join(", ")}`);
+    }
+  } catch (err) {
+    db.exec("ROLLBACK");
+    throw err;
   }
 }
