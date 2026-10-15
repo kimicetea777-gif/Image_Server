@@ -50,7 +50,7 @@ GC는 1시간마다 돌며, R2 삭제가 확인된 이미지만 DB에서 지웁�
 | `POST` | `/images` | multipart 업로드(`file`, 선택 `maxWidth`·`quality`) → 리사이즈·webp 변환 → `PENDING` 기록 → R2 저장. `{ id, url, width, height, format }` 반환 |
 | `POST` | `/images/confirm` | `{ ids }` → `COMMITTED`로 전환. 멱등(이미 확정된 id도 성공으로 응답) |
 | `POST` | `/images/release` | `{ ids }` → R2와 DB에서 삭제. R2 삭제 실패 시 `DELETE_REQUESTED`로 표시 |
-| `GET` | `/images/:id` | 이미지 메타데이터 조회 |
+| `GET` | `/images/:id` | 이미지 메타데이터 조회. 삭제가 결정된(`DELETE_REQUESTED`) 이미지는 없는 이미지와 같은 404 |
 | `DELETE` | `/images` | 호출 프로젝트의 이미지 전부 삭제 — `test` 프로젝트 전용(그 외 403) |
 | `GET` | `/healthz` | 헬스체크 (인증 불필요) |
 
@@ -127,6 +127,7 @@ npm test    # node:test, 임시 SQLite 파일과 mock R2로 실행 (실제 R2·D
 - R2 업로드가 실패하면 row를 지우지 않고 `DELETE_REQUESTED`로 남긴다
 - `PROJECTS`에서 빠진 프로젝트의 키는 더 이상 인증되지 않는다 (다시 넣으면 새 키로 재활성화)
 - 컬럼이 추가되기 전에 만들어진 기존 DB 파일도 시작 시 자동으로 보강된다
+- 삭제가 결정된 이미지는 조회 시 없는 이미지와 똑같이 404로 응답한다
 
 ### Docker
 
