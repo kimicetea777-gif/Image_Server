@@ -191,7 +191,9 @@ export default async function imageRoutes(fastify: FastifyInstance): Promise<voi
   fastify.get<{ Params: { id: string } }>("/:id", async (request, reply) => {
     const project = request.project!;
     const image = findImageForProject(request.params.id, project.id);
-    if (!image) {
+    // DELETE_REQUESTED는 "삭제가 결정됐고 R2 정리만 남은" 내부 상태라 없는 이미지와 똑같이 404로 응답한다.
+    // GC가 row를 지운 뒤에도 404이므로, 호출 측은 정리 타이밍과 무관하게 같은 응답을 받는다.
+    if (!image || image.status === "DELETE_REQUESTED") {
       return reply.code(404).send({ error: "Not found" });
     }
 
