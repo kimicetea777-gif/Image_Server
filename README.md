@@ -119,12 +119,14 @@ npm run dev             # http://localhost:4001
 npm test    # node:test, 임시 SQLite 파일과 mock R2로 실행 (실제 R2·DB를 건드리지 않음)
 ```
 
-정합성 문제를 고정하는 테스트입니다. 수정 전 코드에서 모두 실패하는 것을 확인했습니다.
+실제로 고친 문제를 고정하는 테스트입니다. 수정 전 코드에서 실패하는 것을 먼저 확인했습니다.
 
 - GC가 R2 삭제를 기다리는 사이 confirm된 이미지는 지우지 않는다
 - GC가 먼저 선점한 이미지는 confirm이 실패한다
 - R2 업로드 시점에 `PENDING` row가 이미 기록돼 있다
 - R2 업로드가 실패하면 row를 지우지 않고 `DELETE_REQUESTED`로 남긴다
+- `PROJECTS`에서 빠진 프로젝트의 키는 더 이상 인증되지 않는다 (다시 넣으면 새 키로 재활성화)
+- 컬럼이 추가되기 전에 만들어진 기존 DB 파일도 시작 시 자동으로 보강된다
 
 ### Docker
 
@@ -142,6 +144,9 @@ curl http://127.0.0.1:4001/healthz
 
 `.env`의 `PROJECTS`에 `slug:apiKey[:rateLimit]`를 콤마로 구분해 적고 재시작하면, 서버가 시작할 때 DB에 반영합니다. 키 교체와 rate limit 변경도 같은 방식입니다.
 
+- 목록에서 **뺀 프로젝트는 비활성화**되어 그 키로는 더 이상 인증되지 않습니다. 이미지 기록이 프로젝트를 참조하고 있어서 삭제 대신 비활성화합니다. 다시 목록에 넣으면 활성화됩니다.
+- `PROJECTS`가 비어 있으면 서버가 시작되지 않습니다. 설정 누락으로 모든 프로젝트가 비활성화되는 것을 막기 위해서입니다.
+
 ```bash
 PROJECTS=my_board:<openssl rand -hex 32 결과>,test:<다른 랜덤 키>:20
 ```
@@ -152,7 +157,7 @@ PROJECTS=my_board:<openssl rand -hex 32 결과>,test:<다른 랜덤 키>:20
 |---|---|---|
 | `PORT` | `4000` | 서버 포트 (`.env.example`은 compose 매핑에 맞춰 4001) |
 | `DATABASE_PATH` | `./data/image_server.sqlite` | SQLite 파일 경로 |
-| `PROJECTS` | (없음) | 등록 프로젝트 목록 |
+| `PROJECTS` | (필수) | 등록 프로젝트 목록. 목록에 없는 프로젝트는 비활성화 |
 | `R2_ACCOUNT_ID`, `R2_ACCESS_KEY`, `R2_SECRET_KEY`, `R2_BUCKET`, `R2_PUBLIC_URL` | (필수) | R2 접속 정보와 공개 URL |
 | `MAX_UPLOAD_BYTES` | `10485760` (10MB) | 업로드 최대 크기 |
 | `GC_SWEEP_INTERVAL_MS` | `3600000` (1시간) | GC 주기 |

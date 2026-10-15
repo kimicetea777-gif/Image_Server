@@ -23,7 +23,7 @@ npm run dev             # http://localhost:4001 (.env의 PORT)
 npm run build && npm start  # 프로덕션 빌드 실행
 ```
 
-프로젝트 등록·API 키 교체·rate limit 변경은 `.env`의 `PROJECTS`(`slug:apiKey[:rateLimit]`를 콤마로 구분)만 고치고 재시작하면 된다. 서버가 시작할 때 이 값을 `projects` 테이블에 upsert한다(`src/db/projectsSync.ts`).
+프로젝트 등록·API 키 교체·rate limit 변경은 `.env`의 `PROJECTS`(`slug:apiKey[:rateLimit]`를 콤마로 구분)만 고치고 재시작하면 된다. 서버가 시작할 때 이 값을 `projects` 테이블에 upsert하고, 목록에서 빠진 프로젝트는 비활성화한다(`src/db/projectsSync.ts`). 빈 목록이면 기동을 거부한다.
 
 ## 참고 문서
 
