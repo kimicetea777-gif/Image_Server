@@ -8,7 +8,7 @@ import {
   UnsupportedImageTypeError,
   validateAndProcessImage,
 } from "../services/imageProcessing.js";
-import { deleteObject, publicUrlFor, putObject } from "../services/r2.js";
+import { publicUrlFor, storage } from "../services/r2.js";
 import {
   confirmImage,
   createPendingImage,
@@ -89,7 +89,7 @@ export default async function imageRoutes(fastify: FastifyInstance): Promise<voi
     });
 
     try {
-      await putObject(r2Key, processed.buffer, "image/webp");
+      await storage.putObject(r2Key, processed.buffer, "image/webp");
     } catch (err) {
       // 타임아웃 등으로 실제 업로드 여부가 불확실하니 row를 지우지 않고 DELETE_REQUESTED로 넘겨,
       // 다음 GC 스윕이 키 삭제(없는 키여도 R2는 성공 응답)와 row 정리를 하게 한다. 이 표시마저
@@ -150,7 +150,7 @@ export default async function imageRoutes(fastify: FastifyInstance): Promise<voi
       if (!image) continue; // 소유가 아니거나 없는 id는 조용히 무시
 
       try {
-        await deleteObject(image.r2_key);
+        await storage.deleteObject(image.r2_key);
         hardDeleteImage(image.id);
       } catch (err) {
         request.log.warn({ err, imageId: image.id }, "R2 delete failed, marking DELETE_REQUESTED");
@@ -175,7 +175,7 @@ export default async function imageRoutes(fastify: FastifyInstance): Promise<voi
     let deletedCount = 0;
     for (const image of images) {
       try {
-        await deleteObject(image.r2_key);
+        await storage.deleteObject(image.r2_key);
         hardDeleteImage(image.id);
         deletedCount += 1;
       } catch (err) {

@@ -10,7 +10,7 @@ const client = new S3Client({
   },
 });
 
-export async function putObject(key: string, body: Buffer, contentType: string): Promise<void> {
+async function putObject(key: string, body: Buffer, contentType: string): Promise<void> {
   await client.send(
     new PutObjectCommand({
       Bucket: env.R2_BUCKET,
@@ -21,9 +21,13 @@ export async function putObject(key: string, body: Buffer, contentType: string):
   );
 }
 
-export async function deleteObject(key: string): Promise<void> {
+async function deleteObject(key: string): Promise<void> {
   await client.send(new DeleteObjectCommand({ Bucket: env.R2_BUCKET, Key: key }));
 }
+
+// 객체로 묶어서 내보낸다 — ESM named export는 바깥에서 교체할 수 없어서, 테스트가 실제 R2를 호출하지
+// 않도록 mock.method(storage, ...)로 바꿔 끼우려면 호출부가 항상 storage.xxx()로 불러야 한다.
+export const storage = { putObject, deleteObject };
 
 export function publicUrlFor(key: string): string {
   return `${env.R2_PUBLIC_URL.replace(/\/$/, "")}/${key}`;

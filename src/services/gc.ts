@@ -7,11 +7,11 @@ import {
   markDeleteRequested,
   type ImageRow,
 } from "../db/images.repo.js";
-import { deleteObject } from "./r2.js";
+import { storage } from "./r2.js";
 
 async function purge(image: ImageRow): Promise<void> {
   try {
-    await deleteObject(image.r2_key);
+    await storage.deleteObject(image.r2_key);
     hardDeleteImage(image.id);
   } catch (err) {
     // R2 삭제 실패 시 DB row는 지우지 않고 DELETE_REQUESTED로 유지 — 다음 스윕에서 재시도
