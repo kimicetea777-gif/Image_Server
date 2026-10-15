@@ -10,7 +10,7 @@
 
 - **GC 라이프사이클은 이 서버가 직접 소유한다.** 업로드는 `PENDING`으로 기록되고, 호출 측이 `confirm`해야 확정되며, 확정되지 않은 업로드는 24시간 후 서버가 알아서 지운다. 새 프로젝트를 추가할 때마다 이 정리 로직을 다시 구현하지 않아도 되게 하는 것이 핵심 — 그렇지 않으면 "공용 서버"의 의미가 없다.
 - **이 서버는 프로젝트의 도메인 지식을 모른다.** "게시글당 이미지 몇 장까지" 같은 규칙은 호출하는 프로젝트(예: MBTI_Board의 Spring 백엔드)의 책임이고, 이 서버는 업로드된 이미지 하나하나만 다룬다.
-- **본인이 만드는 프로젝트에만 연결하고, 제3자에게 열어주지 않는다.** 그래서 프로젝트(API 키) 등록은 self-service가 아니라 `scripts/seed-project.ts` CLI로 직접 DB row를 추가하는 방식으로 충분하다 (AS의 client 등록 방식과 동일한 이유).
+- **본인이 만드는 프로젝트에만 연결하고, 제3자에게 열어주지 않는다.** 그래서 프로젝트(API 키) 등록은 self-service가 아니라 `.env`의 `PROJECTS` 한 줄을 단일 소스로 두고 서버 시작 시 DB에 upsert하는 방식으로 충분하다 (AS의 client 등록 방식과 동일한 이유).
 - **단일 인스턴스로 운영한다.** 이미지 서버를 여러 대(복제본)로 띄울 계획이 없다는 전제 하에 SQLite(Node 내장 `node:sqlite`)를 저장소로 쓴다 — 별도 DB 컨테이너나 네이티브 모듈 컴파일이 필요 없다.
 - **불필요한 선제 설계는 하지 않는다.** 업로드량이 늘어나면 큐 기반 비동기 처리로 전환할 수 있지만, 지금은 요청-응답 동기 처리로 충분하다.
 
@@ -19,14 +19,13 @@
 ```bash
 npm install
 cp .env.example .env   # R2_* 값을 채워야 함 (이 서버 전용 버킷 — MBTI_Board 버킷과 공유하지 않음)
-npm run dev             # http://localhost:4000
-npm run seed <slug>     # 새 프로젝트 등록, API 키를 한 번만 출력
+npm run dev             # http://localhost:4001 (.env의 PORT)
 npm run build && npm start  # 프로덕션 빌드 실행
 ```
 
-`scripts/seed-project.ts`는 개발 환경에서 `tsx`로 실행하는 운영 도구다 — 프로덕션 Docker 이미지에는 포함되지 않는다(컴파일된 `dist/`만 들어감). 배포된 인스턴스에 새 프로젝트를 등록하려면 소스 체크아웃이 있는 머신에서 같은 DB 파일(볼륨)을 보며 시드 스크립트를 실행할 것.
+프로젝트 등록·API 키 교체·rate limit 변경은 `.env`의 `PROJECTS`(`slug:apiKey[:rateLimit]`를 콤마로 구분)만 고치고 재시작하면 된다. 서버가 시작할 때 이 값을 `projects` 테이블에 upsert한다(`src/db/projectsSync.ts`).
 
 ## 참고 문서
 
-- `Document/Architecture.md` — 스택, API, 배포 등 상위 수준 설계
-- `Document/init_design.md` — 이번 1차 구현의 확정 설계 결정과 근거(GC 소유권, SQLite 선택 이유, R2↔DB 트랜잭션, rate limit 범위 등), MBTI_Board 연동 시 호출 관계
+- `README.md` — 공개용 개요, API, 설계 결정 요약
+- 상세 설계 메모(`Architecture.md`, `init_design.md` 등)는 저장소 상위 폴더의 `Document/`에 있으며 이 저장소에는 포함되지 않는다.
