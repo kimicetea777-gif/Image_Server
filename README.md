@@ -113,6 +113,19 @@ cp .env.example .env    # R2 자격증명과 PROJECTS 값을 채움
 npm run dev             # http://localhost:4001
 ```
 
+### 테스트
+
+```bash
+npm test    # node:test, 임시 SQLite 파일과 mock R2로 실행 (실제 R2·DB를 건드리지 않음)
+```
+
+정합성 문제를 고정하는 테스트입니다. 수정 전 코드에서 모두 실패하는 것을 확인했습니다.
+
+- GC가 R2 삭제를 기다리는 사이 confirm된 이미지는 지우지 않는다
+- GC가 먼저 선점한 이미지는 confirm이 실패한다
+- R2 업로드 시점에 `PENDING` row가 이미 기록돼 있다
+- R2 업로드가 실패하면 row를 지우지 않고 `DELETE_REQUESTED`로 남긴다
+
 ### Docker
 
 ```bash
