@@ -15,6 +15,7 @@ import {
   findAllByProject,
   findImageForProject,
   hardDeleteImage,
+  ImageStatus,
   markDeleteRequested,
 } from "../db/images.repo.js";
 
@@ -128,7 +129,7 @@ export default async function imageRoutes(fastify: FastifyInstance): Promise<voi
       }
       // 이미 COMMITTED였던 경우엔 멱등하게 성공 처리, 소유가 아니거나 없는 id는 조용히 무시
       const existing = findImageForProject(id, project.id);
-      if (existing?.status === "COMMITTED") {
+      if (existing?.status === ImageStatus.COMMITTED) {
         confirmed.push(id);
       }
     }
@@ -193,7 +194,7 @@ export default async function imageRoutes(fastify: FastifyInstance): Promise<voi
     const image = findImageForProject(request.params.id, project.id);
     // DELETE_REQUESTED는 "삭제가 결정됐고 R2 정리만 남은" 내부 상태라 없는 이미지와 똑같이 404로 응답한다.
     // GC가 row를 지운 뒤에도 404이므로, 호출 측은 정리 타이밍과 무관하게 같은 응답을 받는다.
-    if (!image || image.status === "DELETE_REQUESTED") {
+    if (!image || image.status === ImageStatus.DELETE_REQUESTED) {
       return reply.code(404).send({ error: "Not found" });
     }
 
