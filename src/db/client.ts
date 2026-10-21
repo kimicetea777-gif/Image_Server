@@ -10,8 +10,8 @@ fs.mkdirSync(path.dirname(env.DATABASE_PATH), { recursive: true });
 
 export const db = new DatabaseSync(env.DATABASE_PATH);
 
-db.exec("PRAGMA journal_mode = WAL");
-db.exec("PRAGMA busy_timeout = 5000");
+db.exec("PRAGMA journal_mode = WAL"); //읽기와 쓰기가 서로를 막지 않음
+db.exec("PRAGMA busy_timeout = 5000");  //다른 쓰기에 걸리면 즉시 실패하지 않고 최대 5초 기다림
 db.exec("PRAGMA foreign_keys = ON");
 
 const schema = fs.readFileSync(path.join(__dirname, "schema.sql"), "utf-8");
