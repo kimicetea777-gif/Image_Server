@@ -6,7 +6,7 @@ export function hashApiKey(apiKey: string): string {
   return createHash("sha256").update(apiKey, "utf8").digest("hex");
 }
 
-// 모든 /images* 라우트에 preHandler로 등록 — X-Api-Key -> project 조회, request.project에 부착
+// 모든 /images* 라우트에 onRequest 훅으로 등록 — X-Api-Key -> project 조회, request.project에 부착
 export async function authenticate(request: FastifyRequest, reply: FastifyReply): Promise<void> {
   const apiKey = request.headers["x-api-key"];
   if (typeof apiKey !== "string" || apiKey.length === 0) {

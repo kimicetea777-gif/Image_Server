@@ -1,13 +1,13 @@
 import type { FastifyInstance } from "fastify";
 import { randomUUID } from "node:crypto";
-import { z } from "zod";
 import { authenticate } from "../plugins/auth.js";
 import { enforceRateLimit } from "../plugins/rateLimit.js";
 import {
+  ImageTooLargeError,
   InvalidProcessingOptionsError,
   UnsupportedImageTypeError,
-  validateAndProcessImage,
-} from "../services/imageProcessing.js";
+} from "../policies/imagePolicy.js";
+import { validateAndProcessImage } from "../services/imageProcessing.js";
 import { publicUrlFor, storage } from "../services/r2.js";
 import {
   confirmImage,
@@ -18,40 +18,36 @@ import {
   ImageStatus,
   markDeleteRequested,
 } from "../db/images.repo.js";
+import { parseUploadOptions } from "./uploadOptions.js";
 
-const idsBodySchema = z.object({
-  ids: z.array(z.string().min(1)).min(1).max(20),
-});
+// /confirm, /release 공용 body 스키마 — 라우트 옵션의 schema.body로 넘기면 Fastify(ajv)가 핸들러 실행 전에 검증하고,
+// 실패하면 400 에러(FST_ERR_VALIDATION)를 던져 에러 핸들러로 보낸다. 핸들러에는 검증을 통과한 body만 들어온다.
+// additionalProperties: false + Fastify 기본값 removeAdditional: true → 모르는 키는 거부하지 않고 제거(zod 기본 동작과 같음)
+const idsBodySchema = {
+  type: "object",
+  required: ["ids"],
+  additionalProperties: false,
+  properties: {
+    ids: {
+      type: "array",
+      items: { type: "string", minLength: 1 },
+      minItems: 1,
+      maxItems: 20,
+    },
+  },
+} as const;
 
-interface MultipartFieldValue {
-  value?: unknown;
-}
-
-// multipart 텍스트 필드(배열 또는 단일 값 형태로 옴)에서 문자열 값만 뽑아냄
-function extractFieldValue(field: unknown): string | undefined {
-  const target = Array.isArray(field) ? field[0] : field;
-  if (target && typeof target === "object" && "value" in target) {
-    const value = (target as MultipartFieldValue).value;
-    return typeof value === "string" ? value : undefined;
-  }
-  return undefined;
-}
-
-// maxWidth/quality 같은 선택적 숫자 필드를 파싱, 값이 없으면 undefined(호출 측 기본값 사용)
-function parseOptionalIntField(field: unknown, name: string): number | undefined {
-  const raw = extractFieldValue(field);
-  if (raw === undefined || raw.trim() === "") return undefined;
-  const parsed = Number(raw);
-  if (!Number.isFinite(parsed)) {
-    throw new InvalidProcessingOptionsError(`${name} must be a number`);
-  }
-  return Math.trunc(parsed);
+// JSON Schema만으로는 request.body 타입이 추론되지 않으므로, 라우트 제네릭에 넘길 타입을 따로 선언한다
+interface IdsBody {
+  ids: string[];
 }
 
 // /images 하위 라우트 전체를 등록하는 Fastify 플러그인 — 업로드/확정/취소/조회
 export default async function imageRoutes(fastify: FastifyInstance): Promise<void> {
-  // 이 플러그인 스코프(=/images*) 전체에 인증 적용
-  fastify.addHook("preHandler", authenticate);
+  // 이 플러그인 스코프(=/images*) 전체에 인증 적용. onRequest에 거는 이유: schema.body 검증은 preHandler보다
+  // 먼저 돌기 때문에, preHandler에 두면 키 없는 요청도 body가 틀리면 401이 아니라 400을 받는다.
+  // 인증은 헤더만 보므로 body 파싱 전(onRequest)에 끝내서 미인증 요청이 검증·업로드 파싱까지 가지 않게 한다.
+  fastify.addHook("onRequest", authenticate);
 
   // POST /images — 업로드: 검증/리사이즈/webp 변환 후 DB에 PENDING row 생성 + R2 저장
   fastify.post("/", { preHandler: [enforceRateLimit] }, async (request, reply) => {
@@ -67,10 +63,9 @@ export default async function imageRoutes(fastify: FastifyInstance): Promise<voi
       return reply.code(400).send({ error: "Empty file" });
     }
 
-    const maxWidth = parseOptionalIntField(data.fields.maxWidth, "maxWidth");
-    const quality = parseOptionalIntField(data.fields.quality, "quality");
+    const options = parseUploadOptions(data.fields);
 
-    const processed = await validateAndProcessImage(buffer, { maxWidth, quality });
+    const processed = await validateAndProcessImage(buffer, options);
 
     const id = randomUUID();
     const r2Key = `${project.slug}/${id}.webp`;
@@ -113,15 +108,11 @@ export default async function imageRoutes(fastify: FastifyInstance): Promise<voi
   });
 
   // POST /images/confirm — 확정: PENDING -> COMMITTED로 전환해 GC 대상에서 제외
-  fastify.post("/confirm", async (request, reply) => {
+  fastify.post<{ Body: IdsBody }>("/confirm", { schema: { body: idsBodySchema } }, async (request, reply) => {
     const project = request.project!;
-    const parsed = idsBodySchema.safeParse(request.body);
-    if (!parsed.success) {
-      return reply.code(400).send({ error: "Invalid body", details: parsed.error.flatten() });
-    }
 
     const confirmed: string[] = [];
-    for (const id of parsed.data.ids) {
+    for (const id of request.body.ids) {
       const changed = confirmImage(id, project.id);
       if (changed) {
         confirmed.push(id);
@@ -138,15 +129,11 @@ export default async function imageRoutes(fastify: FastifyInstance): Promise<voi
   });
 
   // POST /images/release — 취소: 업로드는 됐지만 안 쓰기로 한 이미지를 R2 + DB에서 즉시 제거
-  fastify.post("/release", async (request, reply) => {
+  fastify.post<{ Body: IdsBody }>("/release", { schema: { body: idsBodySchema } }, async (request, reply) => {
     const project = request.project!;
-    const parsed = idsBodySchema.safeParse(request.body);
-    if (!parsed.success) {
-      return reply.code(400).send({ error: "Invalid body", details: parsed.error.flatten() });
-    }
 
     const released: string[] = [];
-    for (const id of parsed.data.ids) {
+    for (const id of request.body.ids) {
       const image = findImageForProject(id, project.id);
       if (!image) continue; // 소유가 아니거나 없는 id는 조용히 무시
 
@@ -214,6 +201,9 @@ export default async function imageRoutes(fastify: FastifyInstance): Promise<voi
   fastify.setErrorHandler((error, _request, reply) => {
     if (error instanceof UnsupportedImageTypeError) {
       return reply.code(415).send({ error: error.message });
+    }
+    if (error instanceof ImageTooLargeError) {
+      return reply.code(413).send({ error: error.message });
     }
     if (error instanceof InvalidProcessingOptionsError) {
       return reply.code(400).send({ error: error.message });
